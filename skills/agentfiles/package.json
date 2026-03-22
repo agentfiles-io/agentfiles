@@ -1,0 +1,9 @@
+{
+  "name": "@attach/agentfiles-skill",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/*.test.js",
+    "lint": "eslint --global process --global console --global URL scripts/*.js"
+  }
+}

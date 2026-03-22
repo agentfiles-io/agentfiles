@@ -1,0 +1,4 @@
+interface:
+  display_name: "AgentFiles"
+  short_description: "Use AgentFiles across agent runtimes"
+  default_prompt: "Use $agentfiles to publish, fetch, search, list, share, or watch AgentFiles artifacts through the existing CLI."

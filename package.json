@@ -1,0 +1,42 @@
+{
+  "name": "agentfiles",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Open-core artifact layer for agent work across runtimes",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "test:watch": "turbo run test:watch",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@types/node": "^20.17.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.17.0",
+    "vitest": "^2.1.0"
+  },
+  "license": "MIT",
+  "homepage": "https://agentfiles.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentfiles-io/agentfiles.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agentfiles-io/agentfiles/issues"
+  }
+}
