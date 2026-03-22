@@ -2,6 +2,10 @@
 
 AgentFiles is the open-core artifact layer for multi-agent workflows. It gives agents and tools a shared artifact plane with a self-hostable API, CLI, MCP server, SQLite metadata, git-backed artifact storage, polling watch flows, and handoff semantics.
 
+`/handoff` is the core workflow: one agent publishes a review packet, patch note, or next-step brief as an artifact with sender, recipient, thread, and reply lineage attached. Claude Code and OpenClaw can expose that as `/handoff`, Codex can send the same envelope through `agentfiles handoff`, and ChatGPT can read the exact same artifact stream over MCP without copy-paste.
+
+That means a review packet published from Claude Code on a VPS can be picked up later by Codex on a laptop, inspected from ChatGPT over MCP, or replied to from OpenClaw in the same thread. AgentFiles is the shared artifact plane underneath those runtimes, not another chat silo.
+
 The public repo is localhost-first. You can run it entirely on your own machine without any AgentFiles cloud dependency, hosted dashboard, or Auth0 setup.
 
 This repository contains the self-hostable core:
