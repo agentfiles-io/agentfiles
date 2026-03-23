@@ -10,6 +10,7 @@ import { generateId, getExtensionForContentType, nowISO, computeContentHash, typ
 import type { GrantRow } from "@attach/db";
 import { validateArtifactPathSegment, computeLineDiff } from "@attach/db";
 import type { AuthContext, ShareTokenContext } from "../../middleware/auth.js";
+import { buildStorageQuotaExceededBody, enforceStorageQuota } from "../../middleware/quota.js";
 import { safeJsonParse } from "../../utils/json.js";
 
 const artifacts = new Hono();
@@ -91,6 +92,7 @@ artifacts.post("/", requireAuth, requirePermission("artifacts:write"), async (c)
   const db = c.get("db");
   const blob = c.get("blob");
   const gitStore = c.get("gitStore");
+  const storageLimitBytes = c.get("storageLimitBytes");
 
   const body = await c.req.json<{
     namespace_id: string;
@@ -161,9 +163,6 @@ artifacts.post("/", requireAuth, requirePermission("artifacts:write"), async (c)
   const ext = getExtensionForContentType(body.content_type);
   const gitPath = `${body.slug ?? artifactId}/content.${ext}`;
 
-  // Store in legacy blob store (keeps fallback reads working)
-  blob.put(content);
-
   // Build searchable text
   const handoffParts: string[] = [];
   if (body.provenance?.senderRuntime) handoffParts.push(`FROM: ${body.provenance.senderRuntime}`);
@@ -189,6 +188,19 @@ artifacts.post("/", requireAuth, requirePermission("artifacts:write"), async (c)
       return c.json(
         { error: "slug_taken", message: "An artifact with this slug already exists in the namespace" },
         409
+      );
+    }
+
+    const quota = await enforceStorageQuota(gitStore, body.namespace_id, content.length, storageLimitBytes);
+    if (!quota.allowed) {
+      return c.json(
+        buildStorageQuotaExceededBody(
+          quota.repoSizeBytes,
+          storageLimitBytes,
+          quota.estimatedGrowthBytes,
+          quota.estimatedUsageBytes
+        ),
+        413
       );
     }
 
@@ -236,6 +248,12 @@ artifacts.post("/", requireAuth, requirePermission("artifacts:write"), async (c)
     }
   } finally {
     release();
+  }
+
+  try {
+    blob.put(content);
+  } catch (error) {
+    console.error("Blob fallback write failed after artifact create:", error);
   }
 
   db.audit.create({
@@ -473,6 +491,7 @@ artifacts.put("/:id", requireAuth, requirePermission("artifacts:write"), async (
   const db = c.get("db");
   const blob = c.get("blob");
   const gitStore = c.get("gitStore");
+  const storageLimitBytes = c.get("storageLimitBytes");
   const id = c.req.param("id");
   if (!id) {
     return c.json({ error: "bad_request", message: "Artifact ID is required" }, 400);
@@ -546,9 +565,6 @@ artifacts.put("/:id", requireAuth, requirePermission("artifacts:write"), async (
     gitPath = `${pathSegment}/content.${ext}`;
   }
 
-  // Store in legacy blob store for fallback
-  blob.put(content);
-
   const title = body.title ?? artifact.title;
   const description = body.description ?? artifact.description;
 
@@ -571,6 +587,19 @@ artifacts.put("/:id", requireAuth, requirePermission("artifacts:write"), async (
   const release = await gitStore.acquireNamespaceLock(artifact.namespace_id);
   let result;
   try {
+    const quota = await enforceStorageQuota(gitStore, artifact.namespace_id, content.length, storageLimitBytes);
+    if (!quota.allowed) {
+      return c.json(
+        buildStorageQuotaExceededBody(
+          quota.repoSizeBytes,
+          storageLimitBytes,
+          quota.estimatedGrowthBytes,
+          quota.estimatedUsageBytes
+        ),
+        413
+      );
+    }
+
     const headBefore = await gitStore.getHead(artifact.namespace_id);
     const commitMessage = body.message ?? `Update ${artifact.title}`;
     const gitCommitSha = await gitStore.commitArtifact(
@@ -610,6 +639,12 @@ artifacts.put("/:id", requireAuth, requirePermission("artifacts:write"), async (
     }
   } finally {
     release();
+  }
+
+  try {
+    blob.put(content);
+  } catch (error) {
+    console.error("Blob fallback write failed after artifact update:", error);
   }
 
   db.audit.create({

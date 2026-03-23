@@ -24,6 +24,7 @@ import {
 import type { GitArtifactStore } from "@attach/db";
 
 import { authMiddleware, shareTokenMiddleware } from "./middleware/auth.js";
+import { parseNamespaceStorageLimitBytes } from "./middleware/quota.js";
 import { auth } from "./routes/auth.js";
 import { me } from "./routes/v1/me.js";
 import { apiKeys } from "./routes/v1/api-keys.js";
@@ -57,6 +58,9 @@ setGrantHmacSecret(hmacSecret);
 const blobPath = process.env["BLOB_STORAGE_PATH"] ?? "./data/blobs";
 const blobStore = new FileBlobStore(blobPath);
 const gitStore = new IsomorphicGitArtifactStore(blobPath);
+const namespaceStorageLimitBytes = parseNamespaceStorageLimitBytes(
+  process.env["NAMESPACE_STORAGE_LIMIT_BYTES"]
+);
 
 // Initialize repositories
 const repositories = {
@@ -80,6 +84,7 @@ declare module "hono" {
     db: typeof repositories;
     blob: typeof blobStore;
     gitStore: GitArtifactStore;
+    storageLimitBytes: number;
     auth: AuthContext | null;
     shareToken: ShareTokenContext | null;
   }
@@ -132,6 +137,7 @@ app.use("*", async (c, next) => {
   c.set("db", repositories);
   c.set("blob", blobStore);
   c.set("gitStore", gitStore);
+  c.set("storageLimitBytes", namespaceStorageLimitBytes);
   await next();
 });
 

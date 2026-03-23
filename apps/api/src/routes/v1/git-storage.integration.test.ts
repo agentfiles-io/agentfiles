@@ -23,8 +23,10 @@ import {
   setHmacSecret,
 } from "@attach/db";
 import type { GitArtifactStore } from "@attach/db";
+import { computeContentHash } from "@attach/shared";
 
 import type { AuthContext } from "../../middleware/auth.js";
+import { estimateStorageGrowthBytes } from "../../middleware/quota.js";
 import { artifacts } from "./artifacts.js";
 
 interface TestRepositories {
@@ -59,7 +61,8 @@ function createTestApp(
   repositories: TestRepositories,
   blobStore: FileBlobStore,
   gitStore: GitArtifactStore,
-  auth: AuthContext | null
+  auth: AuthContext | null,
+  storageLimitBytes = 5 * 1024 * 1024 * 1024
 ): Hono {
   const app = new Hono();
 
@@ -67,6 +70,7 @@ function createTestApp(
     c.set("db", repositories);
     c.set("blob", blobStore);
     c.set("gitStore", gitStore);
+    c.set("storageLimitBytes", storageLimitBytes);
     c.set("auth", auth);
     c.set("shareToken", null);
     await next();
@@ -332,5 +336,80 @@ describe("Git-backed artifact storage", () => {
     expect(dupRes.status).toBe(409);
     const body = (await dupRes.json()) as { error: string };
     expect(body.error).toBe("slug_taken");
+  });
+
+  it("rejects writes that exceed the namespace storage quota without writing fallback blobs", async () => {
+    const limitedApp = createTestApp(repositories, blobStore, gitStore, auth, 100_000);
+    const content = "q".repeat(60_000);
+    const contentHash = computeContentHash(Buffer.from(content, "utf-8"));
+
+    const response = await limitedApp.request("/v1/artifacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        namespace_id: namespaceId,
+        title: "Too Large For Namespace",
+        content,
+        content_type: "text/plain",
+      }),
+    });
+
+    expect(response.status).toBe(413);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("storage_quota_exceeded");
+    expect(blobStore.get(contentHash)).toBeNull();
+  });
+
+  it("rejects updates when the namespace repo is already near the storage limit", async () => {
+    const createRes = await app.request("/v1/artifacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        namespace_id: namespaceId,
+        title: "Existing Artifact",
+        content: "seed content",
+        content_type: "text/plain",
+        slug: "quota-update",
+      }),
+    });
+    const created = (await createRes.json()) as { id: string };
+
+    const nextContent = "u".repeat(8_192);
+    const nextBuffer = Buffer.from(nextContent, "utf-8");
+    const currentRepoSize = await gitStore.getRepoSizeBytes(namespaceId);
+    const limit = currentRepoSize + estimateStorageGrowthBytes(nextBuffer.length) - 1;
+    const limitedApp = createTestApp(repositories, blobStore, gitStore, auth, limit);
+    const nextHash = computeContentHash(nextBuffer);
+
+    const updateRes = await limitedApp.request(`/v1/artifacts/${created.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: nextContent,
+      }),
+    });
+
+    expect(updateRes.status).toBe(413);
+    const body = (await updateRes.json()) as { error: string };
+    expect(body.error).toBe("storage_quota_exceeded");
+    expect(repositories.artifacts.getCurrentVersion(created.id)?.version).toBe(1);
+    expect(blobStore.get(nextHash)).toBeNull();
+  });
+
+  it("allows writes when the namespace storage limit is disabled", async () => {
+    const unlimitedApp = createTestApp(repositories, blobStore, gitStore, auth, 0);
+
+    const createRes = await unlimitedApp.request("/v1/artifacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        namespace_id: namespaceId,
+        title: "Unlimited",
+        content: "z".repeat(120_000),
+        content_type: "text/plain",
+      }),
+    });
+
+    expect(createRes.status).toBe(201);
   });
 });

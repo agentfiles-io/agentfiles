@@ -4,6 +4,7 @@ import { join, resolve, relative } from "node:path";
 
 export interface GitArtifactStore {
   initNamespaceRepo(namespaceId: string): Promise<void>;
+  getRepoSizeBytes(namespaceId: string): Promise<number>;
 
   /**
    * Acquire an exclusive namespace-scoped lock.
@@ -143,6 +144,15 @@ export class IsomorphicGitArtifactStore implements GitArtifactStore {
     await git.init({ fs, dir });
   }
 
+  async getRepoSizeBytes(namespaceId: string): Promise<number> {
+    const dir = this.repoDir(namespaceId);
+    if (!fs.existsSync(dir)) {
+      return 0;
+    }
+
+    return getDirectorySizeBytes(dir);
+  }
+
   /**
    * Acquire the namespace-scoped mutex. The returned function releases it.
    * Callers must hold this lock when calling commitArtifact, getHead,
@@ -279,6 +289,25 @@ export class IsomorphicGitArtifactStore implements GitArtifactStore {
 
     return computeLineDiff(linesA, linesB, commitA.slice(0, 8), commitB.slice(0, 8));
   }
+}
+
+async function getDirectorySizeBytes(dir: string): Promise<number> {
+  let total = 0;
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const entryPath = join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      total += await getDirectorySizeBytes(entryPath);
+      continue;
+    }
+
+    const stats = await fs.promises.lstat(entryPath);
+    total += stats.size;
+  }
+
+  return total;
 }
 
 /**
