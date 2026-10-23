@@ -6,7 +6,7 @@
   "description": "Open-core artifact layer for agent work across runtimes",
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "turbo run build",
